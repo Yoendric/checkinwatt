@@ -3,7 +3,7 @@ from ota_update.main.ota_updater import OTAUpdater
 
  def download_and_install_update_if_available():
      o = OTAUpdater('https://github.com/Yoendric/checkinwatt')
-     o.download_and_install_update_if_available('WeWork', 'P@ssw0rd')
+     o.download_and_install_update_if_available('IZZI-1001', '2C9569A81001')
 
 
  def start():
