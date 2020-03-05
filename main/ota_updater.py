@@ -26,21 +26,18 @@ class OTAUpdater:
             while not sta_if.isconnected():
                 pass
         print('network config:', sta_if.ifconfig())
-
     def check_for_update_to_install_during_next_reboot(self):
         current_version = self.get_version(self.modulepath(self.main_dir))
         latest_version = self.get_latest_version()
-
-        print('Checking version... ')
-        print('\tCurrent version: ', current_version)
-        print('\tLatest version: ', latest_version)
+        print('Checking version...')
+        print('\tCurrent version:',current_version)
+        print('\tLastet version:',latest_version)
         if latest_version > current_version:
             print('New version available, will download and install on next reboot')
             os.mkdir(self.modulepath('next'))
             with open(self.modulepath('next/.version_on_reboot'), 'w') as versionfile:
                 versionfile.write(latest_version)
                 versionfile.close()
-
     def download_and_install_update_if_available(self, ssid, password):
         if 'next' in os.listdir(self.module):
             if '.version_on_reboot' in os.listdir(self.modulepath('next')):
@@ -49,7 +46,6 @@ class OTAUpdater:
                 self._download_and_install_update(latest_version, ssid, password)
         else:
             print('No new updates found...')
-
     def _download_and_install_update(self, latest_version, ssid, password):
         OTAUpdater.using_network(ssid, password)
 
@@ -59,7 +55,6 @@ class OTAUpdater:
         os.rename(self.modulepath('next'), self.modulepath(self.main_dir))
         print('Update installed (', latest_version, '), will reboot now')
         machine.reset()
-
     def apply_pending_updates_if_available(self):
         if 'next' in os.listdir(self.module):
             if '.version' in os.listdir(self.modulepath('next')):
@@ -73,14 +68,12 @@ class OTAUpdater:
                 self.rmtree(self.modulepath('next'))
         else:
             print('No pending update found')
-
     def download_updates_if_available(self):
         current_version = self.get_version(self.modulepath(self.main_dir))
         latest_version = self.get_latest_version()
-
-        print('Checking version... ')
-        print('\tCurrent version: ', current_version)
-        print('\tLatest version: ', latest_version)
+        print('Checking version...')
+        print('\tCurrent version:',current_version)
+        print('\tLastet version:',latest_version)
         if latest_version > current_version:
             print('Updating...')
             os.mkdir(self.modulepath('next'))
@@ -91,7 +84,6 @@ class OTAUpdater:
 
             return True
         return False
-
     def rmtree(self, directory):
         for entry in os.ilistdir(directory):
             is_dir = entry[1] == 0x4000
@@ -100,8 +92,7 @@ class OTAUpdater:
 
             else:
                 os.remove(directory + '/' + entry[0])
-        os.rmdir(directory)
-
+        os.rmdir(directory)    
     def get_version(self, directory, version_file_name='.version'):
         if version_file_name in os.listdir(directory):
             f = open(directory + '/' + version_file_name)
@@ -115,7 +106,6 @@ class OTAUpdater:
         version = latest_release.json()['tag_name']
         latest_release.close()
         return version
-
     def download_all_files(self, root_url, version):
         file_list = self.http_client.get(root_url + '?ref=refs/tags/' + version)
         for file in file_list.json():
@@ -143,10 +133,8 @@ class OTAUpdater:
 
     def modulepath(self, path):
         return self.module + '/' + path if self.module else path
-
-
+  
 class Response:
-
     def __init__(self, f):
         self.raw = f
         self.encoding = 'utf-8'
@@ -175,7 +163,6 @@ class Response:
     def json(self):
         import ujson
         return ujson.loads(self.content)
-
 
 class HttpClient:
 
