@@ -22,7 +22,5 @@ def main():
     cont = cont + 1
     if cont == 5:
        o.check_for_update_to_install_during_next_reboot()
-    if cont == 10:
-       machine.reset()
-    time.sleep(60)
+ 
 
