@@ -13,7 +13,7 @@ def using_network(ssid, password):
       pass
   print('network config:', sta_if.ifconfig())
 
-def main()
+def main():
   o = OTAUpdater('https://github.com/Yoendric/checkinwatt')
   using_network('WeWork', 'P@ssw0rd')  
   cont=0
@@ -22,7 +22,7 @@ def main()
     cont = cont + 1
     if cont == 5:
        o.check_for_update_to_install_during_next_reboot()
-    if cont == 10
+    if cont == 10:
        machine.reset()
     time.sleep(60)
 
