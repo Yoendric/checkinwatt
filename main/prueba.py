@@ -27,15 +27,10 @@ def zfill(s, width):
     else:
         return s
 
-def check_time_update_github(hora,min,last_update):
-  (year, month, mday, week_of_year, hour, minute, second, milisecond)=RTC().datetime()
-  hora_ref_epoch=time.mktime((year, month, mday, week_of_year, hora, min, second, milisecond))
-  if hora_ref_epoch > time.mktime(time.localtime()):
-    next_transmision = hora_ref_epoch
-  else:
-    next_transmision = last_update+3600*24
-  print(last_update+3600*24,time.mktime(time.localtime()),hora_ref_epoch,next_transmision)
-  if next_transmision < time.mktime(time.localtime()):
+def check_time_update_github(last_update):
+  next_update = last_update+24*3600
+  print(next_update)
+  if next_update < time.mktime(time.localtime()):
     print("Hora de revisar actualizacion")
     return True
   else:
@@ -49,7 +44,7 @@ def main():
   adjustment_time(-6)
   while True:
     print("Esto es una prueba")
-    if check_time_update_github(7,0,time_last_update):
+    if check_time_update_github(time_last_update):
        o.check_for_update_to_install_during_next_reboot()
        time_last_update=time.mktime(time.localtime()) 
     time.sleep(60)
