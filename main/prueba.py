@@ -34,7 +34,6 @@ def check_time_update_github(hora,min,last_update):
     next_transmision = hora_ref_epoch
   else:
     next_transmision = last_update+3600*24
-  print(last_update+3600*24,time.mktime(time.localtime()),hora_ref_epoch,next_transmision)
   if next_transmision < time.mktime(time.localtime()):
     print("Hora de revisar actualizacion")
     return True
