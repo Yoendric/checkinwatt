@@ -48,7 +48,7 @@ def main():
   adjustment_time(-6)
   while True:
     print("Esto es una prueba")
-    if check_time_update_github(7,0,time_last_update):
+    if check_time_update_github(10,0,time_last_update):
        o.check_for_update_to_install_during_next_reboot()
        time_last_update=time.mktime(time.localtime()) 
     time.sleep(60)
