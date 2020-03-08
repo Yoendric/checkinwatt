@@ -2,10 +2,14 @@ from machine import UART, RTC, Pin
 import ntptime
 import machine
 import time
+from time import sleep
 from struct import *
 import network
 import ubinascii
 from umqtt.simple import MQTTClient
+import collections
+import re
+from uhashlib import sha256
 try:
   import usocket as socket
 except:
@@ -99,9 +103,7 @@ def read_wifi_data():
     essid,passw=data.split(" ")
   return essid, passw
   
-def connect(ssid,password):
-  #ssid = "WeWork"
-  #password = "P@ssw0rd" 
+def connect_wifi_client(ssid,password):
   station = network.WLAN(network.STA_IF) 
   if station.isconnected() == True:
     print("Already connected") 
@@ -183,8 +185,6 @@ def ap_mode(led):
     conn.close()
 
 def iot_hub_mqttsend(device_id, hostname,username,password,msg):
-  #logging.basicConfig(level=logging.ERROR)
-  #logger.setLevel(logging.ERROR)
   client = MQTTClient(device_id, hostname, user=username, password=password,
                     ssl=True, port=8883)
   try:
@@ -202,7 +202,8 @@ def iot_hub_mqttsend(device_id, hostname,username,password,msg):
     letter = [device_id,"MQTTException",error,str(time.time())]
     print (letter)
     try:
-      send_mail(letter)
+      #send_mail(letter)
+      print("EEEEEEEEE enviar correo")
     except:
       print("No se pudo enviar el correo")    
     time.sleep(5)
@@ -215,11 +216,17 @@ def json_format(seg,character,measurent):
     character +=  measurent[i] 
   return character
   
-def adjustment_time(UTC):
-  ntptime.settime() 
-  (year, month, mday, week_of_year, hour, minute, second, milisecond)=RTC().datetime()
-  RTC().init((year, month, mday, week_of_year, hour+UTC, minute, second, milisecond))
-  print ("Fecha/Hora (year, month, mday, week of year, hour, minute, second, milisecond):", RTC().datetime())
+def Adjustment_Time_RTC(UTC):
+  while True:
+    try:
+      ntptime.settime() 
+      (year, month, mday, week_of_year, hour, minute, second, milisecond)=RTC().datetime()
+      RTC().init((year, month, mday, week_of_year, hour+UTC, minute, second, milisecond))
+      print ("Fecha/Hora (year, month, mday, week of year, hour, minute, second, milisecond):", RTC().datetime())
+      return
+    except:
+      print("ERROR ajustando RTC. Wait 1 second")
+      time.sleep(1)  
   
 def send_mail(letter):
   try:
@@ -239,7 +246,6 @@ def send_mail(letter):
 
 def check_time_update_github(last_update):
   next_update = last_update+24*3600
-  print(next_update)
   if next_update < time.mktime(time.localtime()):
     print("Hora de revisar actualizacion")
     return True
@@ -249,88 +255,272 @@ def check_time_update_github(last_update):
 def download_and_install_update_if_available(url,ssid,password):
      o = OTAUpdater(url)
      o.download_and_install_update_if_available(ssid,password)
-  
-########################################################
-def main():
-  global time_last_update
-  time_last_update = 0
-  url='https://github.com/Yoendric/checkinwatt'
-  o = OTAUpdater(url)
-  led=Pin(14,Pin.OUT)
+
+def Get_Client_Wifi_Parameters(led):
   try:
     ssid,passw = read_wifi_data()
   except:
     ssid,passw = ("","")
   if ((not ssid) | (not passw)):
-    ssid , passw = ap_mode(led) 
-  connect(ssid,passw)
+    ssid , passw = ap_mode(led)
+  return ssid,passw
+
+def Read_PZEM_and_Estruct_Message(led,uart,uart1):
+  COM_UART=[uart,uart1]
+  version = "01000103"
+  no_comunication_sensor=["FF","FF","FF"]
+  f0 = ""
+  f1 = f0
+  MSG_TXT = '{{"ID": "{version}","F0": "{f0}","F1": "{f1}"}}'
+  seg = 1
+  while seg <= 62:
+    led.value(seg%2)
+    if seg == 1:
+      meas = '\xb0'
+    elif seg == 62:
+      meas = '\xb3'
+    else:
+      meas = '\xb1'
+    data = read_pzem('192.168.1.1',meas)
+    uart.write(data)
+    data = ''
+    time.sleep(0.1)
+    data = uart.read()
+    if not data:
+      print('No comunicacion con PZEM-004T-01: Segundo: '+str(seg))
+      f0=json_format(seg,f0,no_comunication_sensor)
+    else:  
+      print('PZEM-004T-01: Segundo: '+str(seg))
+      measurent= decoded_measurement(data[0:-3],meas)
+      f0=json_format(seg,f0,measurent) 
+    data = read_pzem('192.168.1.1',meas)
+    uart1.write(data)
+    data = ''
+    time.sleep(0.1)
+    data = uart1.read()
+    if not data:
+      print('No comunicacion con PZEM-004T-02: Segundo: '+str(seg))
+      f1=json_format(seg,f1,no_comunication_sensor)
+    else:  
+      print('PZEM-004T-02: Segundo: '+str(seg))    
+      measurent= decoded_measurement(data[0:-3],meas)
+      f1=json_format(seg,f1,measurent) 
+    time.sleep(0.8)      
+    seg = seg + 1
+  msg_txt_formatted = MSG_TXT.format(version=version, f0=f0,f1=f1)
+  return msg_txt_formatted
+
+def b64encode(s, altchars=None):
+    bytes_types = (bytes, bytearray)
+    if not isinstance(s, bytes_types):
+        raise TypeError("expected bytes, not %s" % s.__class__.__name__)
+    # Strip off the trailing newline
+    encoded = ubinascii.b2a_base64(s)[:-1]
+    if altchars is not None:
+        if not isinstance(altchars, bytes_types):
+            raise TypeError("expected bytes, not %s"
+                            % altchars.__class__.__name__)
+        assert len(altchars) == 2, repr(altchars)
+        return encoded.translate(bytes.maketrans(b'+/', altchars))
+    return encoded
+
+def b64decode(s, altchars=None, validate=False):
+    s = _bytes_from_decode_data(s)
+    if altchars is not None:
+        altchars = _bytes_from_decode_data(altchars)
+        assert len(altchars) == 2, repr(altchars)
+        s = s.translate(bytes.maketrans(altchars, b'+/'))
+    if validate and not re.match(b'^[A-Za-z0-9+/]*={0,2}$', s):
+        raise ubinascii.Error('Non-base64 digit found')
+    return ubinascii.a2b_base64(s)
+
+def _bytes_from_decode_data(s):
+    if isinstance(s, str):
+        try:
+            return s.encode('ascii')
+#        except UnicodeEncodeError:
+        except:
+            raise ValueError('string argument should contain only ASCII characters')
+    elif isinstance(s, bytes_types):
+        return s
+    else:
+        raise TypeError("argument should be bytes or ASCII string, not %s" % s.__class__.__name__)
+
+def quote(string, safe='/', encoding=None, errors=None):
+    if isinstance(string, str):
+        if not string:
+            return string
+        if encoding is None:
+            encoding = 'utf-8'
+        if errors is None:
+            errors = 'strict'
+        string = string.encode(encoding, errors)
+    else:
+        if encoding is not None:
+            raise TypeError("quote() doesn't support 'encoding' for bytes")
+        if errors is not None:
+            raise TypeError("quote() doesn't support 'errors' for bytes")
+    return quote_from_bytes(string, safe)
+
+def quote_plus(string, safe='', encoding=None, errors=None):
+    if ((isinstance(string, str) and ' ' not in string) or
+        (isinstance(string, bytes) and b' ' not in string)):
+        return quote(string, safe, encoding, errors)
+    if isinstance(safe, str):
+        space = ' '
+    else:
+        space = b' '
+    string = quote(string, safe + space, encoding, errors)
+    return string.replace(' ', '+')
+  
+def quote_from_bytes(bs, safe='/'):
+    _ALWAYS_SAFE = frozenset(b'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                         b'abcdefghijklmnopqrstuvwxyz'
+                         b'0123456789'
+                         b'_.-')
+    _ALWAYS_SAFE_BYTES = bytes(_ALWAYS_SAFE)
+    _safe_quoters = {}
+    if not isinstance(bs, (bytes, bytearray)):
+        raise TypeError("quote_from_bytes() expected bytes")
+    if not bs:
+        return ''
+    if isinstance(safe, str):
+        # Normalize 'safe' by converting to bytes and removing non-ASCII chars
+        safe = safe.encode('ascii', 'ignore')
+    else:
+        safe = bytes([c for c in safe if c < 128])
+    if not bs.rstrip(_ALWAYS_SAFE_BYTES + safe):
+        return bs.decode()
+    try:
+        quoter = _safe_quoters[safe]
+    except KeyError:
+        _safe_quoters[safe] = quoter = Quoter(safe).__getitem__
+    return ''.join([quoter(char) for char in bs])
+  
+class Quoter(collections.defaultdict):
+    def __init__(self, safe):
+        """safe: bytes object."""
+        _ALWAYS_SAFE = frozenset(b'ABCDEFGHIJKLMNOPQRSTUVWXYZ' b'abcdefghijklmnopqrstuvwxyz'b'0123456789'b'_.-')
+        self.safe = _ALWAYS_SAFE.union(safe)
+
+    def __repr__(self):
+        # Without this, will just display as a defaultdict
+        return "<Quoter %r>" % dict(self)
+
+    def __missing__(self, b):
+        # Handle a cache miss. Store quoted string in cache and return.
+        res = chr(b) if b in self.safe else '%{:02X}'.format(b)
+        self[b] = res
+        return res
+
+def urlencode(query, doseq=False, safe='', encoding=None, errors=None):
+    if hasattr(query, "items"):
+        query = query.items()
+    l = []
+    if not doseq:
+        for k, v in query:
+            if isinstance(k, bytes):
+                k = quote_plus(k, safe)
+            else:
+                k = quote_plus(str(k), safe, encoding, errors)
+
+            if isinstance(v, bytes):
+                v = quote_plus(v, safe)
+            else:
+                v = quote_plus(str(v), safe, encoding, errors)
+            l.append(k + '=' + v)
+    else:
+        for k, v in query:
+            if isinstance(k, bytes):
+                k = quote_plus(k, safe)
+            else:
+                k = quote_plus(str(k), safe, encoding, errors)
+
+            if isinstance(v, bytes):
+                v = quote_plus(v, safe)
+                l.append(k + '=' + v)
+            elif isinstance(v, str):
+                v = quote_plus(v, safe, encoding, errors)
+                l.append(k + '=' + v)
+            else:
+                try:
+                    # Is this a sufficient test for sequence-ness?
+                    x = len(v)
+                except TypeError:
+                    # not a sequence
+                    v = quote_plus(str(v), safe, encoding, errors)
+                    l.append(k + '=' + v)
+                else:
+                    # loop over the sequence
+                    for elt in v:
+                        if isinstance(elt, bytes):
+                            elt = quote_plus(elt, safe)
+                        else:
+                            elt = quote_plus(str(elt), safe, encoding, errors)
+                        l.append(k + '=' + elt)
+    return '&'.join(l)
+
+def xor(x, y):
+    return bytes(x[i] ^ y[i] for i in range(min(len(x), len(y))))
+
+def hmac_sha256(key_K, data):
+    if len(key_K) > 64:
+        raise ValueError('The key must be <= 64 bytes in length')
+    padded_K = key_K + b'\x00' * (64 - len(key_K))
+    ipad = b'\x36' * 64
+    opad = b'\x5c' * 64
+    h_inner = sha256(xor(padded_K, ipad))
+    h_inner.update(data)
+    h_outer = sha256(xor(padded_K, opad))
+    h_outer.update(h_inner.digest())
+    return h_outer.digest()
+
+def Sas_token(uri,key):
+  expiry=3600*365*24
+  ttl=time.time()+expiry+946684800
+  sign_key = "%s\n%d" % ((quote_plus(uri)), int(ttl))
+  datos=hmac_sha256(b64decode(key), sign_key.encode('utf-8'))
+  signature = b64encode(hmac_sha256(b64decode(key), sign_key.encode('utf-8')))
+  rawtoken={'sr':uri,'sig':signature}
+  rawtoken['se']=str(int(ttl))
+  password = 'SharedAccessSignature ' + urlencode(rawtoken)
+  print(password)
+  return password
+  
+def main():
+  global time_last_update   #variable important to OTA time update
+  time_last_update = 0
+  url='https://github.com/Yoendric/checkinwatt'   #Github repository project
+  o = OTAUpdater(url)
+  led=Pin(14,Pin.OUT)
+  ssid,passw=Get_Client_Wifi_Parameters(led)
+  connect_wifi_client(ssid,passw)
   download_and_install_update_if_available(url,ssid,passw)
-  try:
-    adjustment_time(-5)
-  except:
-    print("no se pudo ajustar RTC")
+  Adjustment_Time_RTC(-6)
   uart = UART(2, baudrate=9600, tx=18,rx=19)# init with given baudrate
   uart.init(9600, bits=8, parity=None, stop=1) # init with given parameters
   uart1 = UART(1, baudrate=9600, tx=17,rx=16)# init with given baudrate
   uart1.init(9600, bits=8, parity=None, stop=1) # init with given parameters
   # Azure IoT-hub settings
-  hostname = "CheckinWattsHub.azure-devices.net"
+  hostname = "checkinwattsiothub.azure-devices.net"
   #This needs to be the key of the "device" IoT-hub shared access policy, NOT the device
   #primary_key = "XXXXXXXXXXXXXX"
   device_id = ubinascii.hexlify(network.WLAN().config('mac'),':').decode()
   device_id = device_id.upper()
   uri = "{hostname}/devices/{device_id}".format(hostname=hostname, device_id=device_id)
-  password = "SharedAccessSignature sr=CheckinWattsHub.azure-devices.net%2Fdevices%2FB4%253AE6%253A2D%253AEB%253A64%253A6D&sig=GAJt50FAe2w7CVauKHl1yW6zzMI1UMjp2VMM9HA5AIc%3D&se=1605029220"
+  #password = "SharedAccessSignature sr=CheckinWattsHub.azure-devices.net%2Fdevices%2FB4%253AE6%253A2D%253AEB%253A64%253A6D&sig=GAJt50FAe2w7CVauKHl1yW6zzMI1UMjp2VMM9HA5AIc%3D&se=1605029220"
   username_fmt = "{}/{}/?api-version=2018-06-30"
+  key="XxXK7Pun5XQa/NqUsGBmXBKI4euLUcU/72bjxuPr+jE="
   username = username_fmt.format(hostname, device_id)
-  version = "01000103"
-  no_comunication_sensor=["FF","FF","FF"]
+  contrasena=Sas_token(uri,key)
   while True:
     if check_time_update_github(time_last_update):
       try:
         o.check_for_update_to_install_during_next_reboot()
         time_last_update=time.mktime(time.localtime())
       except:
-        print("NO SE PUEDE CONECTAR PARA VER SI HAY ACTUALIZACION") 
-    f0 = ""
-    f1 = f0
-    MSG_TXT = '{{"ID": "{version}","F0": "{f0}","F1": "{f1}"}}'
-    seg = 1
-    while seg <= 62:
-      led.value(seg%2)
-      if seg == 1:
-        meas='\xb0'
-      elif seg == 62:
-        meas = '\xb3'
-      else:
-        meas = '\xb1'
-      data = read_pzem('192.168.1.1',meas)
-      uart.write(data)
-      data = ''
-      time.sleep(0.1)
-      data = uart.read()
-      if not data:
-        print('No comunicacion con PZEM-004T-01: Segundo: '+str(seg))
-        f0=json_format(seg,f0,no_comunication_sensor)
-      else:  
-        print('PZEM-004T-01: Segundo: '+str(seg))
-        measurent= decoded_measurement(data[0:-3],meas)
-        f0=json_format(seg,f0,measurent) 
-      data = read_pzem('192.168.1.1',meas)
-      uart1.write(data)
-      data = ''
-      time.sleep(0.1)
-      data = uart1.read()
-      if not data:
-        print('No comunicacion con PZEM-004T-02: Segundo: '+str(seg))
-        f1=json_format(seg,f1,no_comunication_sensor)
-      else:  
-        print('PZEM-004T-02: Segundo: '+str(seg))    
-        measurent= decoded_measurement(data[0:-3],meas)
-        f1=json_format(seg,f1,measurent) 
-      time.sleep(0.8)      
-      seg = seg + 1
-    msg_txt_formatted = MSG_TXT.format(version=version, f0=f0,f1=f1) 
+        print("NO SE PUEDE CONECTAR PARA VER SI HAY ACTUALIZACION")
+    msg_txt_formatted=Read_PZEM_and_Estruct_Message(led,uart,uart1)  
     print ("Message ready to ship to IoT Hub Azure") 
     print (msg_txt_formatted)
-    iot_hub_mqttsend(device_id, hostname,username,password,msg_txt_formatted) 
+    iot_hub_mqttsend(device_id, hostname,username,contrasena,msg_txt_formatted) 
