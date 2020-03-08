@@ -202,8 +202,7 @@ def iot_hub_mqttsend(device_id, hostname,username,password,msg):
     letter = [device_id,"MQTTException",error,str(time.time())]
     print (letter)
     try:
-      #send_mail(letter)
-      print("EEEEEEEEE enviar correo")
+      send_mail(letter)
     except:
       print("No se pudo enviar el correo")    
     time.sleep(5)
