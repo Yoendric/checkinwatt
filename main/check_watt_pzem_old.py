@@ -111,8 +111,8 @@ def connect_wifi_client(ssid,password):
     return 
   station.active(True)
   station.connect(ssid, password)
-  for t in range (0,16):
-    if t == 15:
+  for t in range (0,241):
+    if t == 240:
       print("Sali")      
       station.disconnect()
       station.active(False)
